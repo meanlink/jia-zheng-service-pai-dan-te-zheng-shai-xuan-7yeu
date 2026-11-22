@@ -52,7 +52,7 @@ def propose(order_id, data, actor):
 
 
 def decide(order_id, revision_id, data, actor):
-    from .dispatch import get_order, invalidate_analysis
+    from .dispatch import get_order, invalidate_unconfirmed
 
     with transaction() as cur:
         order = get_order(cur, order_id, lock=True)
@@ -63,7 +63,8 @@ def decide(order_id, revision_id, data, actor):
         if data.decision == 'approved':
             cur.execute('''UPDATE service_orders SET area_m2=%s,dirt_level=%s,obstacles=%s,supplies=%s WHERE id=%s''',
                         (*[revision[key] for key in SCOPE_FIELDS], order_id))
-            invalidate_analysis(cur, order_id, '作业范围已更新，请重新分析')
+            order = get_order(cur, order_id)
+            invalidate_unconfirmed(cur, order, '范围复核通过，作业范围已更新', actor)
         cur.execute('''UPDATE order_scope_revisions SET status=%s,decision_note=%s,decided_by=%s,
                        decided_at=CURRENT_TIMESTAMP WHERE id=%s''', (data.decision, data.note, actor, revision_id))
         audit(cur, actor, 'scope_decided', order['code'], revision=revision['revision_no'], decision=data.decision)

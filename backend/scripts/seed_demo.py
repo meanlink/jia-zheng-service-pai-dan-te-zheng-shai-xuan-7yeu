@@ -2,7 +2,7 @@ from datetime import timedelta
 from random import Random
 
 from src.db import today, transaction
-from src.migrations import initialize_fieldwork
+from src.migrations import initialize_analysis, initialize_fieldwork
 from scripts.seed_fieldwork import seed_fieldwork
 from src.security import hash_password
 
@@ -50,6 +50,7 @@ def seed_history(cur, day, technicians):
 
 def main():
     initialize_fieldwork()
+    initialize_analysis()
     day = today()
     with transaction() as cur:
         for username, name, role in [('intake', '唐宁', 'intake'), ('dispatch', '苏曼', 'dispatcher'),
@@ -69,7 +70,8 @@ def main():
                                                 area, dirt, obstacles, supplies, baseline))
         seed_fieldwork(cur, day)
         for table in ('users', 'technicians', 'service_orders', 'dispatch_plans', 'audit_events',
-                      'order_scope_revisions', 'order_access_clearances', 'dispatch_scenarios', 'visit_handover_briefs'):
+                      'order_scope_revisions', 'order_access_clearances', 'dispatch_scenarios',
+                      'visit_handover_briefs', 'analysis_batches'):
             cur.execute(f'SELECT COUNT(*) AS n FROM {table}')
             print(f'{table}={cur.fetchone()["n"]}')
 

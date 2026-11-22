@@ -97,7 +97,7 @@ def require_resolved_contact(cur, order_id):
 
 
 def record_contact(order_id, data, actor):
-    from .dispatch import get_order, invalidate_analysis
+    from .dispatch import get_order, invalidate_unconfirmed
 
     with transaction() as cur:
         order = get_order(cur, order_id, lock=True)
@@ -115,7 +115,7 @@ def record_contact(order_id, data, actor):
                 raise HTTPException(422, '请选择与原预约不同的时段')
             cur.execute('UPDATE service_orders SET service_date=%s,slot=%s WHERE id=%s',
                         (target_date, target_slot, order_id))
-            invalidate_analysis(cur, order_id, '预约已改期，请重新分析')
+            invalidate_unconfirmed(cur, order, '预约已改期', actor)
         elif data.service_date is not None or data.slot is not None:
             raise HTTPException(422, '仅完成改期时可填写新日期和时段')
         elif data.outcome == 'confirmed' and target_date < today():

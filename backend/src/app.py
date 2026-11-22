@@ -12,7 +12,7 @@ from redis.exceptions import RedisError
 from . import dispatch, intake, scheduling
 from .db import audit, cache, today, transaction
 from .field_routes import router as field_router
-from .migrations import initialize_fieldwork
+from .migrations import initialize_analysis, initialize_fieldwork
 from .models import Role
 from .schemas import AnalysisRequest, Followup, Login, NewOrder, Renewal, Review, TimeOff, VisitContact
 from .security import current_user, hash_password, issue_token, permits, verify_password
@@ -21,6 +21,7 @@ from .security import current_user, hash_password, issue_token, permits, verify_
 async def lifespan(_app):
     scheduling.initialize()
     initialize_fieldwork()
+    initialize_analysis()
     yield
 
 

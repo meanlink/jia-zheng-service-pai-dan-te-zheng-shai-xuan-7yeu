@@ -13,7 +13,8 @@ export const FEATURES = {
 };
 export const EVENTS = {
   visit_contact: '上门联络', order_received: '订单受理', analysis_queued: '提交特征分析', analysis_ready: '特征分析完成',
-  analysis_failed: '分析未完成', dispatch_trial: '生成派单试算', dispatch_confirmed: '调度确认',
+  analysis_failed: '分析未完成', analysis_invalidated: '方案失效重跑', analysis_rerun: '重跑沿用原分析',
+  dispatch_trial: '生成派单试算', dispatch_confirmed: '调度确认',
   access_recorded: '入户核验登记', scope_proposed: '提交范围补测', scope_decided: '完成范围复核',
   scenario_saved: '保存工时假设对照', handover_issued: '发出上门交接', handover_arrival: '登记到场回执',
   pre_dispatch_reviewed: '派单前复核', followup_recorded: '回访登记', post_followup_reviewed: '复盘结案',

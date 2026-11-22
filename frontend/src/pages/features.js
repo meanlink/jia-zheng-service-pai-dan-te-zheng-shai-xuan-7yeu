@@ -1,7 +1,7 @@
 import {api} from '../api.js';
 import {SERVICES, SLOTS} from '../domain.js';
 import {state, orderFor, technicianFor} from '../store.js';
-import {empty, esc, featureTable, formHandler, notify, panelTitle, signed, status} from '../ui.js';
+import {empty, esc, featureTable, formHandler, notify, panelTitle, signed, stamp, status} from '../ui.js';
 
 function candidateOption(tech, order, plan) {
   const expired = tech.valid_through < order.service_date || tech.valid_through < state.session.business_date;
@@ -10,19 +10,30 @@ function candidateOption(tech, order, plan) {
    ${esc(tech.name)} · ${tech.experience_years} 年 · ${!tech.active ? '停用' : expired ? '资质无法覆盖预约日' : '可试算'}</option>`;
 }
 
+function invalidationNote(plan) {
+  if (!plan?.invalidation_reason) return '';
+  return `<div class="callout warn">最近失效：${esc(plan.invalidation_reason)} · 失效后的重跑沿用原样本批次</div>`;
+}
+
+function batchMeta(plan) {
+  if (!plan?.batch_id) return '';
+  return `<span>样本批次 <b>#${plan.batch_id}</b>（${plan.batch_sample_count} 条 · 固定于 ${esc(stamp(plan.batch_pinned_at))}）</span>`;
+}
+
 function renderPlan(plan, order) {
   if (!plan) return empty('等待建立分析', '选择符合预约日期的技师，使用同品类的历史完单训练模型。');
-  if (plan.status === 'queued') return `<div class="pending"><span class="pulse"></span><b>正在分析</b><p>后台正在处理。页面将自动刷新结果。</p></div>`;
-  if (!plan.analysis) return `<div class="callout warn">${esc(plan.error_message || '当前没有分析结果')}</div>`;
+  if (plan.status === 'queued') return `<div class="pending"><span class="pulse"></span><b>正在分析</b><p>后台正在处理。页面将自动刷新结果。</p></div>${invalidationNote(plan)}`;
+  if (!plan.analysis) return `<div class="callout warn">${esc(plan.error_message || '当前没有分析结果')}</div>${invalidationNote(plan)}`;
   const model = plan.analysis;
   const tech = technicianFor(plan);
-  return `<div class="analysis-top"><div class="model-meta"><span>历史完单</span><b>${model.history_count}<small> 条</small></b></div>
+  return `${invalidationNote(plan)}<div class="analysis-top"><div class="model-meta"><span>历史完单</span><b>${model.history_count}<small> 条</small></b></div>
     <div class="model-meta"><span>留出集 MAE</span><b>${model.holdout_mae}<small> 分钟</small></b></div>
     <div class="model-meta"><span>训练 / 验证</span><b>${model.train_count}<small> / </small>${model.test_count}</b></div></div>
     ${featureTable(model)}
     <div class="analysis-foot"><span>训练样本均值 <b>${model.training_mean_minutes.toFixed(1)} 分钟</b></span>
-    <span>验证起日 <b>${esc(model.holdout_since)}</b></span><span>Lasso α <b>${model.alpha}</b></span></div>
+    <span>验证起日 <b>${esc(model.holdout_since)}</b></span><span>Lasso α <b>${model.alpha}</b></span>${batchMeta(plan)}</div>
     <details class="trace"><summary>查看拟合快照</summary><p>技师 ${esc(tech?.name)} · 证书 ${esc(model.certificate)}</p>
+      ${plan.batch_id ? `<p>样本版本：批次 #${plan.batch_id} · ${plan.batch_sample_count} 条 · 固定于 ${esc(stamp(plan.batch_pinned_at))}</p>` : ''}
       <code>${esc(model.history_checksum)}</code></details>
     ${plan.predicted_minutes === null ? '' : `<div class="trial-banner"><div><span>本单预测</span><strong>${plan.predicted_minutes} 分钟</strong></div>
       <div><span>相对受理预估</span><strong>${signed(plan.predicted_minutes - order.baseline_minutes)} 分钟</strong></div>

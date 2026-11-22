@@ -20,6 +20,13 @@ def vector(row):
     return [float(row[key]) for key in FEATURES]
 
 
+def fingerprint(history):
+    """Stable SHA-256 over one pinned sample batch, reused for batch dedupe and fit evidence."""
+    fields = [[row['id'], str(row['service_date']), vector(row), row['actual_minutes']]
+              for row in history]
+    return hashlib.sha256(json.dumps(fields, separators=(',', ':')).encode()).hexdigest()
+
+
 def fit(history, order, technician):
     if len(history) < MIN_HISTORY:
         raise ModelUnavailable(f'同类完单历史至少需要 {MIN_HISTORY} 条，目前 {len(history)} 条')
@@ -48,12 +55,9 @@ def fit(history, order, technician):
     weights[selected] = linear.coef_
     contributions = weights * (np.array(actual_input) - means)
     center = float(linear.intercept_ + np.dot(weights, means))
-    fingerprint_fields = [[row['id'], str(row['service_date']), vector(row), row['actual_minutes']]
-                          for row in history]
-    fingerprint = hashlib.sha256(json.dumps(fingerprint_fields, separators=(',', ':')).encode()).hexdigest()
     return {
         'alpha': ALPHA, 'history_count': len(history), 'train_count': len(train), 'test_count': len(test),
-        'history_checksum': fingerprint, 'holdout_since': str(split_date),
+        'history_checksum': fingerprint(history), 'holdout_since': str(split_date),
         'holdout_mae': round(float(mean_absolute_error(y_test, linear.predict(x_test[:, selected]))), 2),
         'training_mean_minutes': center, 'certificate': technician['certificate'],
         'features': [

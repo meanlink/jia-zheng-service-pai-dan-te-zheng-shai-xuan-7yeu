@@ -1,7 +1,7 @@
 import {api} from '../api.js';
-import {EVENTS, SERVICES, SLOTS} from '../domain.js';
+import {EVENTS, FEATURES, SERVICES, SLOTS} from '../domain.js';
 import {state, orderFor, technicianFor} from '../store.js';
-import {empty, esc, formHandler, notify, panelTitle, signed, status} from '../ui.js';
+import {empty, esc, formHandler, notify, panelTitle, signed, stamp, status} from '../ui.js';
 
 function formFor(plan, role) {
   if (role === 'supervisor' && ['review_pre','review_post'].includes(plan.status)) {
@@ -29,6 +29,18 @@ function reviewText(plan, order) {
   return '';
 }
 
+function basisBlock(plan) {
+  if (!plan.analysis) return '';
+  const selected = plan.analysis.features.filter(feature => feature.selected)
+    .map(feature => FEATURES[feature.key][0]).join('、') || '无';
+  const pinned = plan.batch_id ? `样本批次 #${plan.batch_id} · ${plan.batch_sample_count} 条 · 固定于 ${stamp(plan.batch_pinned_at)}` :
+    `历史完单 ${plan.analysis.history_count} 条`;
+  return `<details class="trace"><summary>模型依据 · ${esc(pinned)}</summary>
+    <p>入选特征：${esc(selected)} · 留出集 MAE ${plan.analysis.holdout_mae} 分钟</p>
+    <code>${esc(plan.analysis.history_checksum)}</code>
+    ${plan.invalidation_reason ? `<p>最近失效：${esc(plan.invalidation_reason)}</p>` : ''}</details>`;
+}
+
 export function reviewPage(root, refresh, draw) {
   const visible = state.plans.filter(plan => plan.predicted_minutes !== null && orderFor(plan));
   const open = visible.filter(plan => plan.status !== 'closed');
@@ -47,6 +59,7 @@ export function reviewPage(root, refresh, draw) {
       <div><span>实际工时</span><b>${plan.actual_minutes ?? '—'}</b><small>分钟</small></div></div>
     <p class="threshold">复核阈值 ±${plan.deviation_limit} 分钟</p>
     ${callout ? `<div class="callout ${plan.status.startsWith('review_') ? 'warn' : ''}">${esc(callout)}</div>` : ''}
+    ${basisBlock(plan)}
     ${[['派单前复核',plan.pre_review_note],['客服回访',plan.followup_note],['复盘结论',plan.post_review_note]]
       .filter(([,note]) => note).map(([label,note]) => `<div class="memo"><b>${label}</b><p>${esc(note)}</p></div>`).join('')}
     ${['confirmed', 'review_post', 'closed'].includes(plan.status) ? `<div class="panel-action field-links">

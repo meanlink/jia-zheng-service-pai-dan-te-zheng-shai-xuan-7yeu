@@ -1,12 +1,17 @@
+import json
+
 from fastapi import HTTPException
 
 from .access import require_access
+from .batches import pin_batch
 from .handover import require_arrival
-from .scope import require_decision
+from .scope import current_scope, require_decision
 from .db import audit, today, transaction
 from .feature_model import ModelUnavailable, estimate
 from .scheduling import require_available, require_resolved_contact
-from .models import ORDER_FIELDS, PLAN_FIELDS, TECH_FIELDS, OrderStatus, PlanStatus, plan_row
+from .models import (
+    ORDER_FIELDS, PLAN_FIELDS, PRE_CONFIRM_STATUSES, TECH_FIELDS, OrderStatus, PlanStatus, plan_row,
+)
 
 
 def get_order(cur, order_id, *, lock=False):
@@ -48,15 +53,30 @@ def get_plan(cur, plan_id, *, lock=False):
 
 
 def plans():
+    fields = ','.join(f'p.{name.strip()}' for name in PLAN_FIELDS.split(','))
     with transaction() as cur:
-        cur.execute(f'''SELECT {PLAN_FIELDS} FROM dispatch_plans
-          ORDER BY (status IN ('closed','failed')),updated_at DESC,id DESC LIMIT 150''')
+        cur.execute(f'''SELECT {fields},b.sample_count AS batch_sample_count,b.checksum AS batch_checksum,
+          b.created_at AS batch_pinned_at FROM dispatch_plans p
+          LEFT JOIN analysis_batches b ON b.id=p.batch_id
+          ORDER BY (p.status IN ('closed','failed')),p.updated_at DESC,p.id DESC LIMIT 150''')
         return [plan_row(row) for row in cur.fetchall()]
 
 
-def invalidate_analysis(cur, order_id, reason):
-    cur.execute('''UPDATE dispatch_plans SET status='failed',analysis=NULL,predicted_minutes=NULL,
-                   pre_review_note=NULL,error_message=%s WHERE order_id=%s''', (reason, order_id))
+def invalidate_unconfirmed(cur, order, reason, actor):
+    """Fail the order's unconfirmed plan and requeue it on the originally pinned batch.
+
+    The prior analysis stays on the row so the worker can skip republishing an
+    identical result; confirmed plans are never touched and keep their prediction.
+    """
+    cur.execute('SELECT id,status FROM dispatch_plans WHERE order_id=%s FOR UPDATE', (order['id'],))
+    plan = cur.fetchone()
+    if not plan or plan['status'] not in PRE_CONFIRM_STATUSES:
+        return False
+    cur.execute('''UPDATE dispatch_plans SET status='queued',predicted_minutes=NULL,pre_review_note=NULL,
+                   error_message=NULL,invalidation_reason=%s,scope_snapshot=%s WHERE id=%s''',
+                (reason, json.dumps(current_scope(order)), plan['id']))
+    audit(cur, actor, 'analysis_invalidated', order['code'], plan_id=plan['id'], reason=reason)
+    return True
 
 
 def require_dispatch_readiness(cur, order_id):
@@ -78,15 +98,21 @@ def queue_analysis(order_id, technician_id, actor):
         require_qualification(order, technician)
         require_available(cur, technician, order)
         require_dispatch_readiness(cur, order['id'])
+        # Pin the training basis at initiation: closed completions as of now plus the
+        # current scope. Follow-ups closed later only enter batches pinned afterwards.
+        batch = pin_batch(cur, order)
+        snapshot = json.dumps(current_scope(order))
         if prior:
             plan_id = prior['id']
-            cur.execute('''UPDATE dispatch_plans SET status='queued',technician_id=%s,analysis=NULL,
-              predicted_minutes=NULL,error_message=NULL,pre_review_note=NULL WHERE id=%s''', (technician_id, plan_id))
+            cur.execute('''UPDATE dispatch_plans SET status='queued',technician_id=%s,batch_id=%s,
+              scope_snapshot=%s,predicted_minutes=NULL,error_message=NULL,pre_review_note=NULL
+              WHERE id=%s''', (technician_id, batch['id'], snapshot, plan_id))
         else:
-            cur.execute("INSERT INTO dispatch_plans(order_id,technician_id,status) VALUES (%s,%s,'queued')",
-                        (order_id, technician_id))
+            cur.execute('''INSERT INTO dispatch_plans(order_id,technician_id,status,batch_id,scope_snapshot)
+              VALUES (%s,%s,'queued',%s,%s)''', (order_id, technician_id, batch['id'], snapshot))
             plan_id = cur.lastrowid
-        audit(cur, actor, 'analysis_queued', order['code'], plan_id=plan_id, technician=technician['code'])
+        audit(cur, actor, 'analysis_queued', order['code'], plan_id=plan_id, technician=technician['code'],
+              batch=batch['id'], samples=batch['sample_count'])
         return get_plan(cur, plan_id)
 
 

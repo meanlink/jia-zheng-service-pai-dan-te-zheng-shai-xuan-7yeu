@@ -4,6 +4,7 @@ export const esc = (value) => String(value ?? '').replace(/[&<>"']/g, x => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[x]));
 export const signed = (number, digits = 0) => (number > 0 ? '+' : '') + Number(number).toFixed(digits);
+export const stamp = (value) => String(value ?? '').replace('T', ' ').slice(0, 16);
 export const optionTags = (labels) => Object.entries(labels).map(([key, label]) =>
   `<option value="${esc(key)}">${esc(label)}</option>`).join('');
 
